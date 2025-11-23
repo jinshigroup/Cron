@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="在线Cron表达式生成器和解析器 - 帮助您轻松创建和理解Quartz Cron表达式，提供执行时间预览">
+    <meta name="keywords" content="Cron表达式, Quartz, 定时任务, Cron生成器, Cron解析器, 定时器, 任务调度">
+    <title>Cron表达式在线生成器 - 可视化工具</title>
+    <!-- 本地引用自定义cron-parser库 -->
+    <script src="js/cron-parser.js"></script>
+    <script>
+        // 全局描述映射
+        const secondsDescriptions = {
+            '*': '每秒',
+            '0': '每分钟的第0秒',
+            '1': '每分钟的第1秒',
+            '5': '每分钟的第5秒',
+            '10': '每分钟的第10秒',
+            '15': '每分钟的第15秒',
+            '30': '每分钟的第30秒',
+            '0,30': '每分钟的第0秒和第30秒',
+            '0-30': '每分钟的第0秒到第30秒',
+            '*/5': '每5秒',
+            '*/10': '每10秒',
+            '*/15': '每15秒'
+        };
+        
+        const minutesDescriptions = {
+            '*': '每分钟',
+            '0': '每小时的第0分钟',
+            '1': '每小时的第1分钟',
+            '5': '每小时的第5分钟',
+            '10': '每小时的第10分钟',
+            '15': '每小时的第15分钟',
+            '30': '每小时的第30分钟',
+            '0,30': '每小时的第0分钟和第30分钟',
+            '0-30': '每小时的第0分钟到第30分钟',
+            '*/5': '每5分钟',
+            '*/10': '每10分钟',
+            '*/15': '每15分钟'
+        };
+        
+        const hoursDescriptions = {
+            '*': '每小时',
+            '0': '每天的0点(午夜)',
+            '1': '每天的1点',
+            '6': '每天的6点',
+            '12': '每天的12点(中午)',
+            '18': '每天的18点',
+            '0,12': '每天的0点和12点',
+            '9-17': '每天的9点到17点',
+            '*/2': '每2小时',
+            '*/3': '每3小时',
+            '*/6': '每6小时'
+        };
+        
+        const domDescriptions = {
+            '?': '不指定',
+            '*': '每天',
+            '1': '每月的第1天',
+            '15': '每月的第15天',
+            '1,15': '每月的第1天和第15天',
+            '1-15': '每月的第1天到第15天',
+            '*/7': '每7天',
+            'L': '每月的最后一天',
+            'LW': '每月的最后一个工作日',
+            '1W': '离每月1号最近的工作日'
+        };
+        
+        const monthDescriptions = {
+            '*': '每月',
+            '1': '1月',
+            '6': '6月',
+            '12': '12月',
+            '1,6,12': '1月、6月和12月',
+            '1-6': '1月到6月',
+            '*/2': '每2个月',
+            '*/3': '每3个月',
+            '*/6': '每6个月'
+        };
+        
+        const dowDescriptions = {
+            '?': '不指定',
+            '*': '每天',
+            '1': '星期日',
+            '2': '星期一',
+            '3': '星期二',
+            '4': '星期三',
+            '5': '星期四',
+            '6': '星期五',
+            '7': '星期六',
+            '2-6': '工作日(星期一到星期五)',
+            '1,7': '周末(星期日和星期六)',
+            '6L': '本月最后一个星期五',
+            '2#1': '本月第一个星期一'
+        };
+        
+        const yearDescriptions = {
+            '*': '每年',
+            '2025': '2025年',
+            '2026': '2026年',
+            '2027': '2027年',
+            '2028': '2028年',
+            '2029': '2029年',
+            '2030': '2030年',
+            '2025,2026,2027': '2025年、2026年和2027年',
+            '2025-2030': '2025年到2030年'
+        };
+        
+        // 全局默认说明函数
+        function getDefaultDescription(value, field) {
+            if (value === '*') return field === 'seconds' ? '每秒' : 
+                                 field === 'minutes' ? '每分钟' : 
+                                 field === 'hours' ? '每小时' : 
+                                 field === 'dayOfMonth' ? '每天' : 
+                                 field === 'month' ? '每月' : 
+                                 field === 'dayOfWeek' ? '每天' : '每年';
+            
+            if (value === '?') return '不指定';
+            
+            if (value.includes('/')) {
+                const [range, step] = value.split('/');
+                if (range === '*') {
+                    return `每${step}${field === 'seconds' ? '秒' : 
+                                      field === 'minutes' ? '分钟' : 
+                                      field === 'hours' ? '小时' : 
+                                      field === 'dayOfMonth' ? '天' : 
+                                      field === 'month' ? '个月' : 
+                                      field === 'dayOfWeek' ? '天' : '年'}`;
+                }
+            }
+            
+            if (value.includes('-')) {
+                return `${value}范围`;
+            }
+            
+            if (value.includes(',')) {
+                return `${value}指定值`;
+            }
+            
+            // 对于单个数值，返回更语义化的说明
+            if (field === 'seconds') {
+                return value === '0' ? '每分钟的第0秒' : 
+                       value === '1' ? '每分钟的第1秒' : 
+                       value === '5' ? '每分钟的第5秒' : 
+                       value === '10' ? '每分钟的第10秒' : 
+                       value === '15' ? '每分钟的第15秒' : 
+                       value === '30' ? '每分钟的第30秒' : 
+                       `${value}秒`;
+            }
+            
+            if (field === 'minutes') {
+                return value === '0' ? '每小时的第0分钟' : 
+                       value === '1' ? '每小时的第1分钟' : 
+                       value === '5' ? '每小时的第5分钟' : 
+                       value === '10' ? '每小时的第10分钟' : 
+                       value === '15' ? '每小时的第15分钟' : 
+                       value === '30' ? '每小时的第30分钟' : 
+                       `${value}分钟`;
+            }
+            
+            if (field === 'hours') {
+                return value === '0' ? '每天的0点(午夜)' : 
+                       value === '1' ? '每天的1点' : 
+                       value === '6' ? '每天的6点' : 
+                       value === '12' ? '每天的12点(中午)' : 
+                       value === '18' ? '每天的18点' : 
+                       `${value}点`;
+            }
+            
+            // 默认返回原始值
+            return `${value}${field === 'dayOfMonth' ? '日' : 
+                             field === 'month' ? '月' : 
+                             field === 'dayOfWeek' ? '星期' : '年'}`;
+        }
+        
+        // 简化版加载函数，只使用本地库
+        function loadCronParserLibrary(callback) {
+            // 直接执行回调，因为我们使用的是本地库
+            if (callback) callback();
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .generator-panel {
+            flex: 1;
+            min-width: 300px;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .result-panel {
+            flex: 1;
+            min-width: 300px;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        @media (min-width: 768px) {
+            .generator-panel {
+                flex: 1;
+                min-width: 300px;
+            }
+            
+            .result-panel {
+                flex: 1;
+                min-width: 300px;
+            }
+        }
+        
+        .form-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .form-row .form-group {
+            flex: 1;
+            min-width: 120px;
+        }
+        
+        .form-row .form-group label {
+            font-size: 14px;
+            margin-bottom: 3px;
+        }
+        
+        .form-row .form-group select {
+            padding: 6px;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        select, input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        
+        button {
+            background-color: #3498db;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        .expression-display {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 12px;
+            margin: 15px 0;
+            font-family: monospace;
+            font-size: 18px;
+            text-align: center;
+            word-break: break-all;
+        }
+        
+        .explanation {
+            background-color: #e8f4fc;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background-color: #f2f2f2;
+            font-size: 14px;
+        }
+        
+        td {
+            font-size: 14px;
+        }
+        
+        .examples {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-top: 20px;
+        }
+        
+        .examples h2, .generator-panel h2, .result-panel h2 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            
+            .form-row .form-group {
+                min-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Cron表达式在线生成器</h1>
+        <p>可视化生成和解析Quartz Cron表达式，预览执行时间</p>
+    </header>
+    
+    <div class="container">
+        <div class="generator-panel">
+            <h2>生成器</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="seconds">秒 (Seconds)</label>
+                    <select id="seconds">
+                        <option value="*">每秒 (*)</option>
+                        <option value="0">0</option>
+                        <option value="1">1</option>
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="30">30</option>
+                        <option value="0,30">0,30</option>
+                        <option value="0-30">0-30</option>
+                        <option value="*/5">每5秒 (*/5)</option>
+                        <option value="*/10">每10秒 (*/10)</option>
+                        <option value="*/15">每15秒 (*/15)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="minutes">分钟 (Minutes)</label>
+                    <select id="minutes">
+                        <option value="*">每分钟 (*)</option>
+                        <option value="0">0</option>
+                        <option value="1">1</option>
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="30">30</option>
+                        <option value="0,30">0,30</option>
+                        <option value="0-30">0-30</option>
+                        <option value="*/5">每5分钟 (*/5)</option>
+                        <option value="*/10">每10分钟 (*/10)</option>
+                        <option value="*/15">每15分钟 (*/15)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="hours">小时 (Hours)</label>
+                    <select id="hours">
+                        <option value="*">每小时 (*)</option>
+                        <option value="0">0</option>
+                        <option value="1">1</option>
+                        <option value="6">6</option>
+                        <option value="12">12</option>
+                        <option value="18">18</option>
+                        <option value="0,12">0,12</option>
+                        <option value="9-17">9-17</option>
+                        <option value="*/2">每2小时 (*/2)</option>
+                        <option value="*/3">每3小时 (*/3)</option>
+                        <option value="*/6">每6小时 (*/6)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="dayOfMonth">日期 (Day of Month)</label>
+                    <select id="dayOfMonth">
+                        <option value="?">不指定 (?)</option>
+                        <option value="*">每天 (*)</option>
+                        <option value="1">1</option>
+                        <option value="15">15</option>
+                        <option value="1,15">1,15</option>
+                        <option value="1-15">1-15</option>
+                        <option value="*/7">每7天 (*/7)</option>
+                        <option value="L">最后一天 (L)</option>
+                        <option value="LW">最后一个工作日 (LW)</option>
+                        <option value="1W">离1号最近的工作日 (1W)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="month">月份 (Month)</label>
+                    <select id="month">
+                        <option value="*">每月 (*)</option>
+                        <option value="1">1月 (JAN)</option>
+                        <option value="6">6月 (JUN)</option>
+                        <option value="12">12月 (DEC)</option>
+                        <option value="1,6,12">1,6,12月</option>
+                        <option value="1-6">1-6月</option>
+                        <option value="*/2">每2个月 (*/2)</option>
+                        <option value="*/3">每3个月 (*/3)</option>
+                        <option value="*/6">每6个月 (*/6)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="dayOfWeek">星期 (Day of Week)</label>
+                    <select id="dayOfWeek">
+                        <option value="?">不指定 (?)</option>
+                        <option value="*">每天 (*)</option>
+                        <option value="1">星期日 (SUN)</option>
+                        <option value="2">星期一 (MON)</option>
+                        <option value="3">星期二 (TUE)</option>
+                        <option value="4">星期三 (WED)</option>
+                        <option value="5">星期四 (THU)</option>
+                        <option value="6">星期五 (FRI)</option>
+                        <option value="7">星期六 (SAT)</option>
+                        <option value="2-6">工作日 (MON-FRI)</option>
+                        <option value="1,7">周末 (SUN,SAT)</option>
+                        <option value="6L">本月最后一个星期五</option>
+                        <option value="2#1">本月第一个星期一</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="year">年份 (Year)</label>
+                    <select id="year">
+                        <option value="*">每年 (*)</option>
+                        <option value="2025">2025</option>
+                        <option value="2026">2026</option>
+                        <option value="2027">2027</option>
+                        <option value="2028">2028</option>
+                        <option value="2029">2029</option>
+                        <option value="2030">2030</option>
+                        <option value="2025,2026,2027">2025,2026,2027</option>
+                        <option value="2025-2030">2025-2030</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <button onclick="generateCron()">生成 Cron 表达式</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="manualCron">或者手动输入 Cron 表达式:</label>
+                <input type="text" id="manualCron" placeholder="例如: 0 0 12 * * ? *" />
+                <button onclick="parseCron()">解析表达式</button>
+            </div>
+        </div>
+        
+        <div class="result-panel">
+            <h2>结果</h2>
+            <div class="expression-display">
+                <span id="cronExpression">* * * ? * * *</span>
+            </div>
+            <ul id="nextExecutions" style="font-size: 14px; padding-left: 15px;">
+                <li>计算中...</li>
+            </ul>
+            <table>
+                <thead>
+                    <tr>
+                        <th>字段</th>
+                        <th>值</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>秒</td>
+                        <td id="sec-value">*</td>
+                        <td>每秒</td>
+                    </tr>
+                    <tr>
+                        <td>分钟</td>
+                        <td id="min-value">*</td>
+                        <td>每分钟</td>
+                    </tr>
+                    <tr>
+                        <td>小时</td>
+                        <td id="hour-value">*</td>
+                        <td>每小时</td>
+                    </tr>
+                    <tr>
+                        <td>日期</td>
+                        <td id="dom-value">?</td>
+                        <td>不指定</td>
+                    </tr>
+                    <tr>
+                        <td>月份</td>
+                        <td id="mon-value">*</td>
+                        <td>每月</td>
+                    </tr>
+                    <tr>
+                        <td>星期</td>
+                        <td id="dow-value">*</td>
+                        <td>每天</td>
+                    </tr>
+                    <tr>
+                        <td>年份</td>
+                        <td id="year-value">*</td>
+                        <td>每年</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        // 默认Cron表达式
+        let currentCron = "0 0 12 * * ? *"; // 默认为每天中午12点执行
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCronParserLibrary(function() {
+                parseCronExpression(currentCron);
+                updateNextExecutions();
+            });
+        });
+        
+        // 生成Cron表达式
+        function generateCron() {
+            const seconds = document.getElementById('seconds').value;
+            const minutes = document.getElementById('minutes').value;
+            const hours = document.getElementById('hours').value;
+            const dayOfMonth = document.getElementById('dayOfMonth').value;
+            const month = document.getElementById('month').value;
+            const dayOfWeek = document.getElementById('dayOfWeek').value;
+            const year = document.getElementById('year').value;
+            
+            currentCron = `${seconds} ${minutes} ${hours} ${dayOfMonth} ${month} ${dayOfWeek} ${year}`;
+            document.getElementById('cronExpression').textContent = currentCron;
+            parseCronExpression(currentCron);
+            // 确保cron解析器库已加载后再更新执行时间
+            loadCronParserLibrary(function() {
+                updateNextExecutions();
+            });
+        }
+        
+        // 解析手动输入的Cron表达式
+        function parseCron() {
+            const manualCron = document.getElementById('manualCron').value.trim();
+            if (manualCron) {
+                currentCron = manualCron;
+                document.getElementById('cronExpression').textContent = currentCron;
+                parseCronExpression(currentCron);
+                // 确保cron解析器库已加载后再更新执行时间
+                loadCronParserLibrary(function() {
+                    updateNextExecutions();
+                });
+            }
+        }
+        
+        // 解析Cron表达式并更新字段值显示
+        function parseCronExpression(cron) {
+            const parts = cron.split(' ');
+            if (parts.length !== 7) {
+                return;
+            }
+            
+            // 更新字段值显示
+            document.getElementById('sec-value').textContent = parts[0];
+            document.getElementById('min-value').textContent = parts[1];
+            document.getElementById('hour-value').textContent = parts[2];
+            document.getElementById('dom-value').textContent = parts[3];
+            document.getElementById('mon-value').textContent = parts[4];
+            document.getElementById('dow-value').textContent = parts[5];
+            document.getElementById('year-value').textContent = parts[6];
+            
+            // 更新说明字段
+            updateFieldDescriptions(parts);
+            
+            // 同时更新生成器面板的选择项以匹配表达式
+            updateGeneratorPanel(parts);
+        }
+        
+        
+        // 根据表达式值更新生成器面板的选择项
+        function updateGeneratorPanel(parts) {
+            const selects = [
+                'seconds', 'minutes', 'hours', 'dayOfMonth', 'month', 'dayOfWeek', 'year'
+            ];
+            
+            for (let i = 0; i < selects.length; i++) {
+                const select = document.getElementById(selects[i]);
+                const value = parts[i];
+                
+                // 检查选项是否存在
+                let optionExists = false;
+                for (let j = 0; j < select.options.length; j++) {
+                    if (select.options[j].value === value) {
+                        optionExists = true;
+                        break;
+                    }
+                }
+                
+                // 如果选项不存在，添加它
+                if (!optionExists) {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    
+                    // 为新选项生成语义化文本
+                    let textContent = value;
+                    switch(select.id) {
+                        case 'seconds':
+                            textContent = secondsDescriptions[value] || getDefaultDescription(value, 'seconds');
+                            break;
+                        case 'minutes':
+                            textContent = minutesDescriptions[value] || getDefaultDescription(value, 'minutes');
+                            break;
+                        case 'hours':
+                            textContent = hoursDescriptions[value] || getDefaultDescription(value, 'hours');
+                            break;
+                        case 'dayOfMonth':
+                            textContent = domDescriptions[value] || getDefaultDescription(value, 'dayOfMonth');
+                            break;
+                        case 'month':
+                            textContent = monthDescriptions[value] || getDefaultDescription(value, 'month');
+                            break;
+                        case 'dayOfWeek':
+                            textContent = dowDescriptions[value] || getDefaultDescription(value, 'dayOfWeek');
+                            break;
+                        case 'year':
+                            textContent = yearDescriptions[value] || getDefaultDescription(value, 'year');
+                            break;
+                    }
+                    
+                    option.textContent = textContent;
+                    select.appendChild(option);
+                }
+                
+                // 选择对应的值
+                select.value = value;
+            }
+        }
+        
+        // 根据表达式值更新说明字段
+        function updateFieldDescriptions(parts) {
+            // 获取各字段的说明
+            const secDesc = secondsDescriptions[parts[0]] || getDefaultDescription(parts[0], 'seconds');
+            const minDesc = minutesDescriptions[parts[1]] || getDefaultDescription(parts[1], 'minutes');
+            const hourDesc = hoursDescriptions[parts[2]] || getDefaultDescription(parts[2], 'hours');
+            const domDesc = domDescriptions[parts[3]] || getDefaultDescription(parts[3], 'dayOfMonth');
+            const monDesc = monthDescriptions[parts[4]] || getDefaultDescription(parts[4], 'month');
+            const dowDesc = dowDescriptions[parts[5]] || getDefaultDescription(parts[5], 'dayOfWeek');
+            const yearDesc = yearDescriptions[parts[6]] || getDefaultDescription(parts[6], 'year');
+            
+            // 更新各字段的说明
+            document.querySelector('tbody tr:nth-child(1) td:nth-child(3)').textContent = secDesc;
+            document.querySelector('tbody tr:nth-child(2) td:nth-child(3)').textContent = minDesc;
+            document.querySelector('tbody tr:nth-child(3) td:nth-child(3)').textContent = hourDesc;
+            document.querySelector('tbody tr:nth-child(4) td:nth-child(3)').textContent = domDesc;
+            document.querySelector('tbody tr:nth-child(5) td:nth-child(3)').textContent = monDesc;
+            document.querySelector('tbody tr:nth-child(6) td:nth-child(3)').textContent = dowDesc;
+            document.querySelector('tbody tr:nth-child(7) td:nth-child(3)').textContent = yearDesc;
+        }
+        
+        // 更新下次执行时间
+        function updateNextExecutions() {
+            const list = document.getElementById('nextExecutions');
+            list.innerHTML = '<li>计算中...</li>';
+            
+            // 检查cronParser是否已定义且为函数
+            if (typeof cronParser === 'undefined' || typeof cronParser.parseExpression !== 'function') {
+                // 如果库未加载，显示提示信息
+                list.innerHTML = '<li>执行时间计算功能未正确加载，请检查js/cron-parser.js文件是否存在</li>';
+                return;
+            }
+            
+            try {
+                // 使用cron-parser库解析Cron表达式并计算下次执行时间
+                // 配置选项以支持Quartz格式的Cron表达式
+                const options = {
+                    currentDate: new Date(),
+                    iterator: false,
+                    utc: false
+                };
+                
+                // 解析Quartz格式的Cron表达式
+                const interval = cronParser.parseExpression(currentCron, options);
+                
+                // 清空列表
+                list.innerHTML = '';
+                
+                // 获取接下来的执行时间（最多5个）
+                let count = 0;
+                let maxAttempts = 100; // 防止无限循环
+                while (count < 5 && maxAttempts > 0) {
+                    try {
+                        const next = interval.next();
+                        const item = document.createElement('li');
+                        item.textContent = next.toDate().toLocaleString('zh-CN');
+                        list.appendChild(item);
+                        count++;
+                    } catch (e) {
+                        // 如果没有更多执行时间，跳出循环
+                        break;
+                    }
+                    maxAttempts--;
+                }
+                
+                // 如果没有找到任何执行时间
+                if (count === 0) {
+                    const item = document.createElement('li');
+                    item.textContent = '在指定年份内未找到匹配的执行时间';
+                    list.appendChild(item);
+                }
+            } catch (err) {
+                // 如果解析失败，显示错误信息
+                console.error('Cron解析错误:', err);
+                list.innerHTML = '<li>无法计算执行时间: ' + err.message + '</li>';
+            }
+        }
+        
+        // 页面底部不再重复定义loadCronParserLibrary函数
+        // 该函数已在页面头部定义
+    </script>
+</body>
+</html>
